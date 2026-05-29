@@ -13,7 +13,7 @@ Base.metadata.create_all(bind=engine)
 
 origins = [
     "http://localhost:3000",
-    "https://YOUR-FRONTEND.vercel.app"
+    "https://compliance-ai-chi.vercel.app"
 ]
 
 app = FastAPI(

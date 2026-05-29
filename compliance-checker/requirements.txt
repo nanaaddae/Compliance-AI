@@ -12,3 +12,7 @@ sentence-transformers
 chromadb
 pdfplumber
 passlib
+langchain
+langchain-text-splitters
+requests
+pypdf

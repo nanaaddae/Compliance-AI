@@ -11,11 +11,18 @@ from app.api.routes import audit_logs
 
 Base.metadata.create_all(bind=engine)
 
+origins = [
+    "http://localhost:3000",
+    "https://YOUR-FRONTEND.vercel.app"
+]
+
 app = FastAPI(
     title="AI Policy & Compliance Checker",
     description="Upload company policies and query them for compliance answers using AI.",
     version="1.0.0",
 )
+
+
 
 app.add_middleware(
     CORSMiddleware,

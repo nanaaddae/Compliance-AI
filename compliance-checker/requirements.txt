@@ -15,3 +15,4 @@ langchain-text-splitters
 requests
 pypdf
 vecs
+huggingface_hub

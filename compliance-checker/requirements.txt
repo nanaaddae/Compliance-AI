@@ -8,11 +8,10 @@ python-multipart
 pydantic[email]
 pydantic-settings
 bcrypt==4.0.1
-sentence-transformers
-chromadb
 pdfplumber
 passlib
 langchain
 langchain-text-splitters
 requests
 pypdf
+vecs

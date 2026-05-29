@@ -1,35 +1,52 @@
+import os
 import pdfplumber
-import chromadb
-from chromadb.config import Settings
+import vecs
+from fastapi import HTTPException
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sentence_transformers import SentenceTransformer
-from pathlib import Path
+from app.core.config import settings
+from huggingface_hub import InferenceClient
 
-# Load the embedding model once at startup — this is the model that converts text to vectors
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-
-# Set up ChromaDB — runs locally, stores data in a folder called chroma_db
-chroma_client = chromadb.PersistentClient(
-    path="./chroma_db",
-    settings=Settings(anonymized_telemetry=False)
+# Hugging Face client (FIXED)
+client = InferenceClient(
+    provider="hf-inference",
+    api_key=settings.HUGGINGFACE_API_KEY,
 )
 
-# Get or create a collection — think of this like a table in ChromaDB
-collection = chroma_client.get_or_create_collection(
-    name="policy_documents",
-    metadata={"hnsw:space": "cosine"}  # cosine similarity for semantic search
-)
+MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
 
-# Text splitter — breaks text into overlapping chunks
+DATABASE_URL = settings.DATABASE_URL
+
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,       # each chunk is ~500 characters
-    chunk_overlap=200,     # chunks overlap by 50 characters so context isn't lost at boundaries
+    chunk_size=1000,
+    chunk_overlap=200,
     length_function=len,
 )
 
 
+def get_embedding(text: str) -> list:
+    """Generate embedding via Hugging Face (stable client version)."""
+
+    if not settings.HUGGINGFACE_API_KEY:
+        raise HTTPException(status_code=500, detail="Missing Hugging Face API key")
+
+    try:
+        embedding = client.feature_extraction(
+            text,
+            model=MODEL_ID
+        )
+
+        # ensure flat list
+        if isinstance(embedding, list) and len(embedding) > 0:
+            if isinstance(embedding[0], list):
+                return embedding[0]
+
+        return embedding
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Embedding error: {str(e)}")
+
+
 def extract_text_from_pdf(file_path: str) -> str:
-    """Extract all text from a PDF file."""
     text = ""
     with pdfplumber.open(file_path) as pdf:
         for page in pdf.pages:
@@ -40,44 +57,54 @@ def extract_text_from_pdf(file_path: str) -> str:
 
 
 def chunk_and_embed_document(document_id: int, file_path: str, original_name: str) -> int:
-    """
-    Full pipeline:
-    1. Extract text from PDF
-    2. Split into chunks
-    3. Embed each chunk
-    4. Store in ChromaDB
-    Returns the number of chunks stored.
-    """
-    # Step 1: Extract text
+
     raw_text = extract_text_from_pdf(file_path)
-
     if not raw_text:
-        raise ValueError("No text could be extracted from this PDF")
+        raise ValueError("No text extracted from PDF")
 
-    # Step 2: Split into chunks
     chunks = text_splitter.split_text(raw_text)
 
-    # Step 3: Embed each chunk — convert text to vectors
-    embeddings = embedding_model.encode(chunks).tolist()
+    embeddings = []
+    for chunk in chunks:
+        embeddings.append(get_embedding(chunk))
 
-    # Step 4: Store in ChromaDB
-    # Each chunk needs a unique ID, the embedding, the text, and metadata
-    collection.add(
-        ids=[f"doc_{document_id}_chunk_{i}" for i, _ in enumerate(chunks)],
-        embeddings=embeddings,
-        documents=chunks,
-        metadatas=[{
-            "document_id": document_id,
-            "original_name": original_name,
-            "chunk_index": i
-        } for i, _ in enumerate(chunks)]
+    if not DATABASE_URL:
+        raise HTTPException(status_code=500, detail="DATABASE_URL missing")
+
+    vx = vecs.create_client(DATABASE_URL)
+    collection = vx.get_or_create_collection(
+        name="policy_documents",
+        dimension=384
     )
+
+    records = []
+    for i, chunk in enumerate(chunks):
+        records.append((
+            f"doc_{document_id}_chunk_{i}",
+            embeddings[i],
+            {
+                "document_id": document_id,
+                "original_name": original_name,
+                "chunk_index": i,
+                "content": chunk
+            }
+        ))
+
+    collection.upsert(records=records)
+    collection.create_index()
 
     return len(chunks)
 
 
 def delete_document_chunks(document_id: int):
-    """Remove all chunks for a document from ChromaDB."""
-    results = collection.get(where={"document_id": document_id})
-    if results["ids"]:
-        collection.delete(ids=results["ids"])
+
+    if not DATABASE_URL:
+        return
+
+    vx = vecs.create_client(DATABASE_URL)
+    collection = vx.get_or_create_collection(
+        name="policy_documents",
+        dimension=384
+    )
+
+    collection.delete(filters={"document_id": {"$eq": document_id}})

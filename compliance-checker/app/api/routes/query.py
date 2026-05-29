@@ -5,7 +5,6 @@ from app.services.query_service import query_policies
 from app.core.dependencies import require_employee
 from app.models.user import User
 from app.models.audit_log import AuditLog
-from app.services.document_processor import collection
 from app.db.database import get_db
 
 router = APIRouter(prefix="/query", tags=["Query"])
@@ -25,15 +24,11 @@ def query_compliance(
             detail="Question cannot be empty"
         )
 
-    if collection.count() == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No policy documents have been uploaded yet"
-        )
-
+    # We call query_policies directly now. If no text vectors exist inside
+    # Supabase/Postgres, query_policies safely handles returning the warning payload.
     result = query_policies(payload.question)
 
-    # Save to audit log
+    # Save to standard relational SQL audit log table
     log = AuditLog(
         user_id=current_user.id,
         question=payload.question,

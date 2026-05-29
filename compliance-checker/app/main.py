@@ -20,13 +20,14 @@ app = FastAPI(
     title="AI Policy & Compliance Checker",
     description="Upload company policies and query them for compliance answers using AI.",
     version="1.0.0",
+    redirect_slashes=False
 )
 
 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

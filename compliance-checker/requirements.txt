@@ -16,3 +16,4 @@ requests
 pypdf
 vecs
 huggingface_hub
+groq
